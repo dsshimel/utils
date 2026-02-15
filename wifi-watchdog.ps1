@@ -4,7 +4,8 @@
     Monitors internet connectivity and reconnects to a specified WiFi network if the connection drops.
 
 .PARAMETER SSID
-    The WiFi network name to reconnect to. Defaults to "Fractal Tech".
+    The WiFi network name to reconnect to. If not specified, the script detects the
+    currently connected network at startup. If no network is connected, it waits.
 
 .PARAMETER IntervalSeconds
     How often to check connectivity, in seconds. Defaults to 10.
@@ -16,7 +17,7 @@
     Ping timeout in milliseconds. Defaults to 3000.
 
 .PARAMETER FailThreshold
-    Number of consecutive ping failures before triggering a reconnect. Defaults to 3.
+    Number of consecutive ping failures before triggering a reconnect. Defaults to 1.
 
 .EXAMPLE
     .\wifi-watchdog.ps1
@@ -24,11 +25,11 @@
 #>
 
 param(
-    [string]$SSID = "Fractal Tech",
+    [string]$SSID,
     [int]$IntervalSeconds = 10,
     [string]$PingTarget = "8.8.8.8",
     [int]$PingTimeoutMs = 3000,
-    [int]$FailThreshold = 3
+    [int]$FailThreshold = 1
 )
 
 $consecutiveFailures = 0
@@ -98,23 +99,35 @@ function Connect-WiFi {
     }
 }
 
-# --- Main loop ---
+# --- Detect or wait for WiFi connection ---
 
 Write-Host ""
 Write-Host "=== WiFi Watchdog ===" -ForegroundColor Cyan
+
+if (-not $SSID) {
+    $detectedSSID = Get-CurrentSSID
+    if ($detectedSSID) {
+        $SSID = $detectedSSID
+        Write-Log "Detected connected network: '$SSID'" "OK"
+    } else {
+        Write-Log "Not connected to any WiFi network. Waiting for a connection..." "WARN"
+        while (-not $SSID) {
+            Start-Sleep -Seconds 3
+            $detectedSSID = Get-CurrentSSID
+            if ($detectedSSID) {
+                $SSID = $detectedSSID
+                Write-Log "Connected to '$SSID'. Starting watchdog." "OK"
+            }
+        }
+    }
+}
+
 Write-Host "  Network:        $SSID"
 Write-Host "  Check interval: ${IntervalSeconds}s"
 Write-Host "  Ping target:    $PingTarget"
 Write-Host "  Fail threshold: $FailThreshold consecutive failures"
 Write-Host "  Press Ctrl+C to stop."
 Write-Host ""
-
-$currentSSID = Get-CurrentSSID
-if ($currentSSID) {
-    Write-Log "Currently connected to: '$currentSSID'" "OK"
-} else {
-    Write-Log "Not currently connected to any WiFi network." "WARN"
-}
 
 while ($true) {
     if (Test-Internet) {
